@@ -159,7 +159,8 @@ button:focus-visible, canvas:focus-visible { outline: 2px solid var(--fokus); ou
   min-height: 320px;
   height: min(100vw, 70vh);
 }
-.ansicht canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.ansicht canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.ansicht canvas:active { cursor: grabbing; }
 .ansicht .hinweis {
   position: absolute; left: 10px; bottom: 8px;
   font-size: 12px; color: var(--grau-text);
@@ -205,14 +206,20 @@ details.regeln li + li { margin-top: 4px; }
 
 /* Laptop und grösser: Palette links, Ansicht Mitte, Info rechts */
 @media (min-width: 900px) {
-  body { font-size: 13px; padding: 24px; }
+  /* Alles passt in den Bildschirm: die Seite scrollt nicht, nur eine
+     zu volle Seitenspalte scrollt in sich */
+  body { font-size: 13px; padding: 16px; height: 100vh; overflow: hidden; }
   .fenster.erhaben { border-radius: 10px; box-shadow: 0 12px 40px rgba(5, 25, 35, 0.45), inset 0 1px 0 rgba(255,255,255,0.7); }
-  .fenster { max-width: 1320px; min-height: calc(100vh - 48px); }
+  .fenster { max-width: 1440px; height: calc(100vh - 32px); min-height: 0; }
   button, .knopf { min-height: 28px; min-width: 28px; font-size: 13px; padding: 0 10px; }
   .wohnungen button { min-width: 36px; }
-  .arbeit { grid-template-columns: 220px minmax(0, 1fr) 280px; }
-  .ansicht { height: auto; min-height: 560px; order: 0; }
-  .spalte { display: flex; flex-direction: column; gap: 8px; }
+  .arbeit { grid-template-columns: 220px minmax(0, 1fr) 280px; grid-template-rows: minmax(0, 1fr); align-content: stretch; min-height: 0; }
+  .ansicht { height: auto; min-height: 0; order: 0; }
+  .spalte { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; padding-right: 2px; }
+  .spalte > * { flex: none; }
+  .grundriss { max-height: 30vh; width: auto; max-width: 100%; }
+  .feld { padding: 8px 10px; }
+  .zahlen td { padding: 2px 0; }
   .spalte > * { order: 0 !important; }
   .spalte:first-child { order: -1; }
   .legende { grid-template-columns: 1fr; }
@@ -251,7 +258,8 @@ details.regeln li + li { margin-top: 4px; }
       <button id="neu">Neu rechnen</button>
     </div>
     <div class="gruppe">
-      <button id="drehen">Ansicht drehen</button>
+      <span class="bez">Ansicht</span>
+      <div class="segmente" id="ansichten"></div>
     </div>
   </div>
 
@@ -350,7 +358,8 @@ const zustand = {
   groesse: '3/5/6',
   index: 0,         // welche Variante
   ebene: -1,        // -1 = alle Ebenen, sonst 0 bis 5
-  drehung: 0,       // 0 bis 3, je 90 Grad
+  alpha: 315,       // Kamera: Himmelsrichtung in Grad
+  phi: 30,          // Kamera: Neigung in Grad
   wahl: -1,         // hervorgehobene Wohnung
   rechnet: false,
 };
@@ -374,19 +383,33 @@ function namen(wohnungen) {
 }
 
 /* ------------------------------------------------------------------
-   3D-Ansicht (isometrisch, Maleralgorithmus: hinten zuerst)
+   3D-Ansicht: frei drehbar (Ziehen) und gerade Ansichten.
+   Parallelprojektion, Maleralgorithmus: hinten zuerst.
+   Weltachsen: x nach Osten, y nach Süden (y = 0 ist die Nordseite),
+   z Ebenen nach oben.
    ------------------------------------------------------------------ */
 const bild = $('bild'), stift = bild.getContext('2d');
-const C30 = Math.cos(Math.PI / 6);
+const HZ = 0.75;   // Ebenenhöhe 3 m zu Modulbreite 4 m
 
-// Quader um 90 Grad drehen, so oft wie zustand.drehung
-function drehe(x0, y0, x1, y1) {
-  let { NX: B, NY: T } = masse();
-  for (let r = 0; r < zustand.drehung; r++) {
-    [x0, y0, x1, y1] = [y0, B - x1, y1, B - x0];
-    [B, T] = [T, B];
-  }
-  return [x0, y0, x1, y1];
+// Kamera: alpha = Himmelsrichtung, aus der man schaut (0 Nord, 90 Ost,
+// 180 Süd, 270 West), phi = Neigung (0 waagrecht, 90 von oben)
+const ANSICHTEN = {
+  Axo:  { alpha: 315, phi: 30 },
+  Nord: { alpha: 0,   phi: 0 },
+  Ost:  { alpha: 90,  phi: 0 },
+  Süd:  { alpha: 180, phi: 0 },
+  West: { alpha: 270, phi: 0 },
+  Oben: { alpha: 180, phi: 90 },
+};
+
+function kamera() {
+  const a = zustand.alpha * Math.PI / 180, p = zustand.phi * Math.PI / 180;
+  const fE = -Math.sin(a), fN = -Math.cos(a);          // Blickrichtung waagrecht
+  return {
+    rE: fN, rN: -fE, fE, fN,                            // rechts und vorwärts
+    cp: Math.cos(p), sp: Math.sin(p),
+    zur: [Math.sin(a) * Math.cos(p), Math.cos(a) * Math.cos(p), Math.sin(p)],  // zur Kamera
+  };
 }
 
 function zeichneAnsicht() {
@@ -399,97 +422,176 @@ function zeichneAnsicht() {
   if (!v) return;
 
   const { NX, NY, NZ } = masse();
-  const gedreht = zustand.drehung % 2 === 1;
-  const B = gedreht ? NY : NX, T = gedreht ? NX : NY;
-  const HZ = 0.75;   // Ebenenhöhe 3 m zu Modulbreite 4 m
+  const K = kamera();
+  const cx = NX / 2, cy = NY / 2, cz = NZ * HZ / 2;
 
-  // Massstab und Lage: die Ecken des Blocks (mit Laubengängen) passen in die Fläche
-  const roh = (x, y, z) => [(-x + y) * C30, -z * HZ + (-x - y) * 0.5];
-  const ecken = [];
-  for (const x of [-0.3, B + 0.3]) for (const y of [-0.3, T + 0.3]) for (const z of [0, NZ]) ecken.push(roh(x, y, z));
-  const minX = Math.min(...ecken.map(e => e[0])), maxX = Math.max(...ecken.map(e => e[0]));
-  const minY = Math.min(...ecken.map(e => e[1])), maxY = Math.max(...ecken.map(e => e[1]));
-  const S = Math.min(w / (maxX - minX), h / (maxY - minY)) * 0.86;
-  const ox = w / 2 - (minX + maxX) / 2 * S, oy = h / 2 - (minY + maxY) / 2 * S;
-  const P = (x, y, z) => { const r = roh(x, y, z); return [ox + r[0] * S, oy + r[1] * S]; };
+  // Massstab aus der Raumdiagonale: beim Drehen bleibt die Grösse gleich
+  const radius = Math.sqrt(NX * NX + NY * NY + (NZ * HZ) ** 2) / 2;
+  const S = Math.min(w, h) / (2 * radius) * 0.94;
+  const ox = w / 2, oy = h / 2;
 
-  function flaeche(pkt, farbe, deck, gestrichelt) {
+  // Punkt (x, y, Höhe) auf den Bildschirm, dazu die Tiefe
+  function P(x, y, zh) {
+    const e = x - cx, n = cy - y, hh = zh - cz;
+    const u = e * K.rE + n * K.rN, vw = e * K.fE + n * K.fN;
+    return [ox + u * S, oy - (hh * K.cp + vw * K.sp) * S, vw * K.cp - hh * K.sp];
+  }
+  const tiefe = (x, y, zh) => P(x, y, zh)[2];
+
+  function flaeche(pkt, farbe, deck, linie) {
     stift.beginPath();
     pkt.forEach((p, i) => i ? stift.lineTo(p[0], p[1]) : stift.moveTo(p[0], p[1]));
     stift.closePath();
     stift.globalAlpha = deck; stift.fillStyle = farbe; stift.fill(); stift.globalAlpha = 1;
-    stift.setLineDash(gestrichelt ? [3, 3] : []);
-    stift.strokeStyle = gestrichelt ? 'rgba(60,58,54,0.7)' : 'rgba(0,0,0,0.38)';
-    stift.lineWidth = 0.8; stift.stroke(); stift.setLineDash([]);
+    stift.setLineDash(linie.strich ? [4, 3] : []);
+    stift.strokeStyle = linie.farbe; stift.lineWidth = linie.breite;
+    stift.stroke(); stift.setLineDash([]);
   }
-  function quader(q, farbe, deck, gestrichelt, text, textfarbe) {
-    const [x0, y0, x1, y1] = q.box, z0 = q.z0, z1 = q.z1;
-    flaeche([P(x0, y0, z1), P(x1, y0, z1), P(x1, y1, z1), P(x0, y1, z1)], farbe[0], deck, gestrichelt);
-    flaeche([P(x0, y0, z0), P(x1, y0, z0), P(x1, y0, z1), P(x0, y0, z1)], farbe[1], deck, gestrichelt);
-    flaeche([P(x0, y0, z0), P(x0, y1, z0), P(x0, y1, z1), P(x0, y0, z1)], farbe[2], deck, gestrichelt);
-    if (text) {
-      const p = P((x0 + x1) / 2, (y0 + y1) / 2, z1);
+
+  // Die sechs Flächen eines Quaders; n = Normale (Ost, Nord, oben),
+  // nb = Richtung zur Nachbarzelle im Raster (x, y, z)
+  function flaechen(b) {
+    const [x0, y0, x1, y1, z0, z1] = b;
+    return [
+      { n: [0, 0, 1],  ton: 0, nb: [0, 0, 1],  p: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]] },
+      { n: [0, 0, -1], ton: 0, nb: [0, 0, -1], p: [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]] },
+      { n: [0, 1, 0],  ton: 1, nb: [0, -1, 0], p: [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]] },
+      { n: [0, -1, 0], ton: 1, nb: [0, 1, 0],  p: [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]] },
+      { n: [1, 0, 0],  ton: 2, nb: [1, 0, 0],  p: [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]] },
+      { n: [-1, 0, 0], ton: 2, nb: [-1, 0, 0], p: [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]] },
+    ];
+  }
+  const zurKamera = f => f.n[0] * K.zur[0] + f.n[1] * K.zur[1] + f.n[2] * K.zur[2];
+  const mitte = f => f.p.reduce((s, q) => [s[0] + q[0] / 4, s[1] + q[1] / 4, s[2] + q[2] / 4], [0, 0, 0]);
+
+  function quader(b, farbe, deck, linie, text, textfarbe, textFlaeche) {
+    for (const f of flaechen(b)) {
+      if (zurKamera(f) <= 1e-6) continue;
+      flaeche(f.p.map(q => P(...q)), farbe[f.ton], deck, linie);
+    }
+    if (text && textFlaeche) {
+      const p = P(...mitte(textFlaeche));
       stift.font = 'bold ' + Math.max(9, Math.min(13, S * 0.22)) + 'px ' + getComputedStyle(document.body).fontFamily;
       stift.textAlign = 'center'; stift.textBaseline = 'middle';
-      stift.globalAlpha = deck < 0.3 ? 0.4 : 1; stift.fillStyle = textfarbe;
-      stift.fillText(text, p[0], p[1]); stift.globalAlpha = 1;
+      stift.fillStyle = textfarbe;
+      stift.fillText(text, p[0], p[1]);
     }
   }
 
-  // Bodenraster
-  stift.strokeStyle = '#dcdad3'; stift.lineWidth = 1;
-  const rand = 4;
-  for (let i = -rand; i <= B + rand; i++) {
-    const a = P(i, -rand, 0), b = P(i, T + rand, 0);
-    stift.beginPath(); stift.moveTo(a[0], a[1]); stift.lineTo(b[0], b[1]); stift.stroke();
-  }
-  for (let j = -rand; j <= T + rand; j++) {
-    const a = P(-rand, j, 0), b = P(B + rand, j, 0);
-    stift.beginPath(); stift.moveTo(a[0], a[1]); stift.lineTo(b[0], b[1]); stift.stroke();
+  // Bodenraster (nur wenn man von schräg oben schaut)
+  if (zustand.phi > 4) {
+    stift.strokeStyle = 'rgba(40, 70, 90, 0.13)'; stift.lineWidth = 1;
+    const rand = 4;
+    for (let i = -rand; i <= NX + rand; i++) {
+      const a = P(i, -rand, 0), b = P(i, NY + rand, 0);
+      stift.beginPath(); stift.moveTo(a[0], a[1]); stift.lineTo(b[0], b[1]); stift.stroke();
+    }
+    for (let j = -rand; j <= NY + rand; j++) {
+      const a = P(-rand, j, 0), b = P(NX + rand, j, 0);
+      stift.beginPath(); stift.moveTo(a[0], a[1]); stift.lineTo(b[0], b[1]); stift.stroke();
+    }
   }
   // Grundfläche des Blocks
-  flaeche([P(0, 0, 0), P(B, 0, 0), P(B, T, 0), P(0, T, 0)], '#c9c7bf', 0.5, false);
+  flaeche([P(0, 0, 0), P(NX, 0, 0), P(NX, NY, 0), P(0, NY, 0)], '#9fb3bd', 0.35, { farbe: 'rgba(40,70,90,0.3)', breite: 1 });
 
   const sichtbar = z => zustand.ebene < 0 || z <= zustand.ebene;
   const blass = z => zustand.ebene >= 0 && z < zustand.ebene;
-  const teile = [];
   const nm = namen(v.wohnungen);
+  const gewaehlt = zustand.wahl >= 0;
 
-  // Welche Zellen sind sichtbar belegt? Beschriftet wird nur ein Modul,
-  // dessen Deckfläche frei liegt.
   const belegt = new Set();
   v.wohnungen.forEach(wo => wo.module.concat(wo.zusatz).forEach(([x, y, z]) => { if (sichtbar(z)) belegt.add(x + ',' + y + ',' + z); }));
+  const frei = (x, y, z, d) => !belegt.has((x + d[0]) + ',' + (y + d[1]) + ',' + (z + d[2]));
 
-  v.wohnungen.forEach((wo, i) => {
-    const ab = zustand.wahl >= 0 && zustand.wahl !== i;
-    // Beschriftung auf dem vordersten Modul mit freier Deckfläche
-    let oben = null, obenK = 0;
-    for (const [x, y, z] of wo.module) {
-      if (!sichtbar(z) || belegt.has(x + ',' + y + ',' + (z + 1))) continue;
-      const q = { box: drehe(x, y, x + 1, y + 1), z0: z * HZ, z1: (z + 0.98) * HZ };
-      const k = q.box[0] + q.box[1] - z * 10;
-      if (!oben || k < obenK) { oben = [x, y, z]; obenK = k; }
+  // Beschriftung: die freiliegende Fläche, die am meisten zur Kamera zeigt und am nächsten ist
+  function beschriftung(zellen, box) {
+    let best = null;
+    for (const [x, y, z] of zellen) {
+      if (!sichtbar(z) || blass(z)) continue;
+      for (const f of flaechen(box(x, y, z))) {
+        const k = zurKamera(f);
+        if (k < 0.35 || !frei(x, y, z, f.nb)) continue;
+        const t = tiefe(...mitte(f)) - k * 0.5;
+        if (!best || t < best.t) best = { t, zelle: [x, y, z], f };
+      }
     }
+    return best;
+  }
+
+  const hinten = [], vorne = [];   // vorne: die gewählte Wohnung, zuletzt gezeichnet
+  v.wohnungen.forEach((wo, i) => {
+    const ab = gewaehlt && zustand.wahl !== i;
+    const liste = gewaehlt && !ab ? vorne : hinten;
+    const modulBox = (x, y, z) => [x, y, x + 1, y + 1, z * HZ, (z + 0.98) * HZ];
+    const zusatzBox = (x, y, z) => [x + 0.08, y + 0.08, x + 0.92, y + 0.92, z * HZ, (z + 0.9) * HZ];
+    const lm = ab ? null : beschriftung(wo.module, modulBox);
+    const lz = ab ? null : beschriftung(wo.zusatz, zusatzBox);
+    const gleich = (l, x, y, z) => l && l.zelle[0] === x && l.zelle[1] === y && l.zelle[2] === z;
+
     for (const [x, y, z] of wo.module) {
       if (!sichtbar(z)) continue;
-      const q = { box: drehe(x, y, x + 1, y + 1), z0: z * HZ, z1: (z + 0.98) * HZ };
-      const grau = ab || blass(z);
-      const istOben = oben && oben[0] === x && oben[1] === y && oben[2] === z;
-      teile.push({ k: q.box[0] + q.box[1] - z, f: () => quader(q, grau ? FARBE.G : FARBE[wo.typ], blass(z) ? 0.18 : ab ? 0.3 : 1, false, istOben && !blass(z) ? nm[i] : '', ab ? TEXT.G : TEXT[wo.typ]) });
+      const b = modulBox(x, y, z), istText = gleich(lm, x, y, z);
+      const farbe = ab || blass(z) ? FARBE.G : FARBE[wo.typ];
+      const deck = blass(z) ? 0.14 : ab ? 0.06 : 1;
+      const linie = ab ? { farbe: 'rgba(40,60,70,0.18)', breite: 0.6 } : { farbe: 'rgba(0,0,0,0.38)', breite: 0.8 };
+      liste.push({ k: tiefe(x + 0.5, y + 0.5, (z + 0.5) * HZ), f: () => quader(b, farbe, deck, linie, istText ? nm[i] : '', TEXT[wo.typ], istText ? lm.f : null) });
     }
+    // Zusatzmodule: Farbe der Wohnung, gestrichelte Kante in ihrer dunklen Farbe, beschriftet
     for (const [x, y, z] of wo.zusatz) {
       if (!sichtbar(z)) continue;
-      const q = { box: drehe(x + 0.1, y + 0.1, x + 0.9, y + 0.9), z0: z * HZ, z1: (z + 0.88) * HZ };
-      const grau = ab || blass(z);
-      teile.push({ k: q.box[0] + q.box[1] - 0.2 - z + 0.001, f: () => quader(q, grau ? FARBE.G : FARBE[wo.typ], blass(z) ? 0.06 : ab ? 0.08 : 0.35, true) });
+      const b = zusatzBox(x, y, z), istText = gleich(lz, x, y, z);
+      const farbe = ab || blass(z) ? FARBE.G : FARBE[wo.typ];
+      const deck = blass(z) ? 0.05 : ab ? 0.03 : 0.3;
+      const linie = ab ? { farbe: 'rgba(40,60,70,0.15)', breite: 0.6, strich: true }
+        : { farbe: blass(z) ? 'rgba(40,60,70,0.3)' : TEXT[wo.typ], breite: blass(z) ? 0.6 : 1.3, strich: true };
+      liste.push({ k: tiefe(x + 0.5, y + 0.5, (z + 0.5) * HZ) - 0.001, f: () => quader(b, farbe, deck, linie, istText ? nm[i] : '', TEXT[wo.typ], istText ? lz.f : null) });
     }
   });
 
-  teile.sort((a, b) => b.k - a.k).forEach(t => t.f());
+  hinten.sort((a, b) => b.k - a.k).forEach(t => t.f());
+  vorne.sort((a, b) => b.k - a.k).forEach(t => t.f());
 
-  $('ansicht-info').textContent = 'Ansicht ' + (zustand.drehung + 1) + ' von 4' +
-    (zustand.ebene >= 0 ? ' · Ebene ' + (zustand.ebene + 1) + ' hervorgehoben' : '');
+  const name = Object.keys(ANSICHTEN).find(n => ANSICHTEN[n].alpha === zustand.alpha && ANSICHTEN[n].phi === zustand.phi);
+  $('ansicht-info').textContent = (name ? 'Ansicht ' + name : 'Freie Ansicht') + ' · Ziehen zum Drehen' +
+    (zustand.ebene >= 0 ? ' · Ebene ' + (zustand.ebene + 1) : '');
+  document.querySelectorAll('#ansichten button').forEach(b => b.setAttribute('aria-pressed', b.textContent === name));
 }
+
+// Weicher Wechsel zu einer geraden Ansicht
+let wechsel = null;
+function geheZu(ziel) {
+  if (wechsel) cancelAnimationFrame(wechsel);
+  const ruhig = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const a0 = zustand.alpha, p0 = zustand.phi;
+  const da = ((ziel.alpha - a0) % 360 + 540) % 360 - 180;   // kürzester Weg
+  const t0 = performance.now(), dauer = ruhig ? 0 : 320;
+  (function schritt(t) {
+    const s = dauer ? Math.min(1, Math.max(0, (t - t0) / dauer)) : 1, e = 1 - Math.pow(1 - s, 4);
+    zustand.alpha = s < 1 ? a0 + da * e : ziel.alpha;
+    zustand.phi = s < 1 ? p0 + (ziel.phi - p0) * e : ziel.phi;
+    zeichneAnsicht();
+    wechsel = s < 1 ? requestAnimationFrame(schritt) : null;
+  })(t0);
+}
+
+// Ziehen mit Maus oder Finger: waagrecht drehen, senkrecht neigen
+(function () {
+  let start = null;
+  bild.addEventListener('pointerdown', e => {
+    if (wechsel) { cancelAnimationFrame(wechsel); wechsel = null; }
+    start = { x: e.clientX, y: e.clientY, a: zustand.alpha, p: zustand.phi };
+    bild.setPointerCapture(e.pointerId);
+  });
+  bild.addEventListener('pointermove', e => {
+    if (!start) return;
+    zustand.alpha = (((start.a - (e.clientX - start.x) * 0.5) % 360) + 360) % 360;
+    zustand.phi = Math.max(0, Math.min(90, start.p + (e.clientY - start.y) * 0.4));
+    zeichneAnsicht();
+  });
+  const ende = () => { start = null; };
+  bild.addEventListener('pointerup', ende);
+  bild.addEventListener('pointercancel', ende);
+})();
 
 /* ------------------------------------------------------------------
    Grundriss der gewählten Ebene (Westen links, Osten rechts)
@@ -519,6 +621,8 @@ function zeichneGrundriss() {
   pstift.font = '11px ' + schrift; pstift.fillStyle = '#4a4944'; pstift.textAlign = 'center'; pstift.textBaseline = 'middle';
   pstift.fillText('West', x0 - gang / 2, 10);
   pstift.fillText('Ost', x0 + NX * zelle + gang / 2, 10);
+  pstift.fillText('Nord', x0 + NX * zelle / 2, 10);
+  pstift.fillText('Süd', x0 + NX * zelle / 2, h - 10);
 
   const nm = namen(v.wohnungen);
   // y = 0 oben gezeichnet
@@ -593,7 +697,7 @@ function baueGroessen() {
   const ort = $('groessen');
   ort.innerHTML = '';
   for (const g in TypeZero.GROESSEN) {
-    const b = knopf(g, () => { zustand.groesse = g; zustand.index = 0; zustand.wahl = -1; if (zustand.drehung) zustand.drehung = 0; alles(); });
+    const b = knopf(g, () => { zustand.groesse = g; zustand.index = 0; zustand.wahl = -1; alles(); });
     b.setAttribute('aria-pressed', g === zustand.groesse);
     ort.appendChild(b);
   }
@@ -685,7 +789,7 @@ $('zufall').onclick = () => {
   let j = zustand.index; while (n > 1 && j === zustand.index) j = Math.floor(Math.random() * n);
   zustand.index = j; zustand.wahl = -1; alles();
 };
-$('drehen').onclick = () => { zustand.drehung = (zustand.drehung + 1) % 4; zeichneAnsicht(); };
+for (const n in ANSICHTEN) $('ansichten').appendChild(knopf(n, () => geheZu(ANSICHTEN[n]), 'Ansicht ' + n));
 
 /* Neu rechnen: der Generator sucht eine neue Variante. Im Web Worker
    bleibt die Seite bedienbar; ohne Worker (Datei lokal geöffnet)
@@ -728,10 +832,11 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowLeft') $('zurueck').click();
   else if (e.key >= '1' && e.key <= '6') { zustand.ebene = +e.key - 1; alles(); }
   else if (e.key === '0') { zustand.ebene = -1; alles(); }
-  else if (e.key === 'r' || e.key === 'R') $('drehen').click();
+  else if (e.key === 'r' || e.key === 'R') geheZu({ alpha: (Math.round(zustand.alpha / 90) * 90 + 90) % 360, phi: zustand.phi });
 });
 
-window.addEventListener('resize', () => { zeichneAnsicht(); });
+// Neu zeichnen, sobald sich die Grösse der Ansicht ändert (Fenster, aufgeklapptes Regelwerk)
+new ResizeObserver(() => zeichneAnsicht()).observe(bild.parentElement);
 
 // Direkter Link, z. B. ?block=3/4/6&variante=2&ebene=3
 const adresse = new URLSearchParams(location.search);
