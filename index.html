@@ -147,7 +147,6 @@ button:focus-visible, canvas:focus-visible { outline: 2px dotted var(--fokus); o
 .legende span { display: flex; align-items: center; gap: 6px; }
 .farbe { width: 14px; height: 14px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45); }
 .farbe.leer { background: transparent; box-shadow: none; border: 1px dashed #6b6962; }
-.farbe.gang { background: #b4b2a9; }
 
 .zahlen { width: 100%; border-collapse: collapse; font-size: 13px; }
 .zahlen td { padding: 4px 0; vertical-align: top; overflow-wrap: anywhere; }
@@ -249,7 +248,6 @@ details.regeln li + li { margin-top: 4px; }
           <span><i class="farbe" style="background:var(--C)"></i>C Split, 5 Module</span>
           <span><i class="farbe" style="background:var(--D)"></i>D Stacked, 6 Module</span>
           <span><i class="farbe leer"></i>Zusatzmodul (leer)</span>
-          <span><i class="farbe gang"></i>Laubengang</span>
         </div>
       </div>
     </div>
@@ -318,7 +316,7 @@ const FARBE = {
   B: ['#CECBF6', '#AFA9EC', '#7F77DD'],
   C: ['#F5C4B3', '#F0997B', '#D85A30'],
   D: ['#FAC775', '#EF9F27', '#BA7517'],
-  G: ['#D3D1C7', '#B4B2A9', '#888780'],   // Laubengang und abgeblendet
+  G: ['#D3D1C7', '#B4B2A9', '#888780'],   // abgeblendet
 };
 const TEXT = { A: '#085041', B: '#3C3489', C: '#712B13', D: '#633806', G: '#5F5E5A' };
 
@@ -464,17 +462,6 @@ function zeichneAnsicht() {
     }
   });
 
-  // Laubengänge als schmale Platten vor der Fassade
-  for (let z = 0; z < NZ; z++) {
-    if (!sichtbar(z)) continue;
-    const gx = TypeZero.laubengang(z);
-    for (let y = 0; y < NY; y++) {
-      const x0 = gx === 0 ? -0.3 : NX, x1 = x0 + 0.3;
-      const q = { box: drehe(x0, y, x1, y + 1), z0: z * HZ, z1: z * HZ + 0.05 };
-      teile.push({ k: (q.box[0] + q.box[2]) / 2 + (q.box[1] + q.box[3]) / 2 - 1 - z + 0.01, f: () => quader(q, FARBE.G, blass(z) ? 0.2 : 1, false) });
-    }
-  }
-
   teile.sort((a, b) => b.k - a.k).forEach(t => t.f());
 
   $('ansicht-info').textContent = 'Ansicht ' + (zustand.drehung + 1) + ' von 4' +
@@ -509,11 +496,6 @@ function zeichneGrundriss() {
   pstift.font = '11px ' + schrift; pstift.fillStyle = '#4a4944'; pstift.textAlign = 'center'; pstift.textBaseline = 'middle';
   pstift.fillText('West', x0 - gang / 2, 10);
   pstift.fillText('Ost', x0 + NX * zelle + gang / 2, 10);
-
-  // Laubengang
-  const gx = TypeZero.laubengang(z);
-  pstift.fillStyle = '#b4b2a9';
-  pstift.fillRect(gx === 0 ? x0 - gang : x0 + NX * zelle, rand, gang, NY * zelle);
 
   const nm = namen(v.wohnungen);
   // y = 0 oben gezeichnet
@@ -607,7 +589,7 @@ function baueEbenen() {
   }
   $('ebene-info').textContent = zustand.ebene < 0
     ? 'Ganzer Block. Eine Zahl zeigt die Ebene mit den Ebenen darunter blass.'
-    : 'Laubengang auf der ' + (TypeZero.laubengang(zustand.ebene) === 0 ? 'Westseite' : 'Ostseite') + '.';
+    : 'Ebene ' + (zustand.ebene + 1) + ' kräftig, die Ebenen darunter blass.';
 }
 
 function baueWohnungen() {
