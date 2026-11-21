@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Type Zero Modul Generator</title>
+<meta name="description" content="Open Source Modul Generator für das Wohnsystem Type Zero: gültige Varianten für Blöcke 3/5/6, 3/4/6 und 3/3/6, Ebene für Ebene.">
+<style>
+/* ------------------------------------------------------------------
+   Gestaltung: Software der 90er. Ein graues Programmfenster mit
+   Titelleiste, Werkzeugleiste, Palette, eingelassener 3D-Ansicht
+   und Statuszeile. Farben der Wohnungstypen wie im Regelwerk (PDF).
+   ------------------------------------------------------------------ */
+:root {
+  --schreibtisch: #2f5d62;   /* Hintergrund hinter dem Fenster */
+  --platin: #d6d3cc;         /* Fensterfläche */
+  --platin-hell: #e6e4df;
+  --licht: #ffffff;          /* Kante oben links */
+  --schatten: #858279;       /* Kante unten rechts */
+  --dunkel: #2b2a27;
+  --titel: #1d3b8f;          /* Titelleiste */
+  --tinte: #141413;
+  --grau-text: #4a4944;      /* 8.0:1 auf --platin */
+  --ansicht: #f2f1ed;        /* Grund der 3D-Ansicht */
+  --raster: #d9d7d0;
+  --fokus: #1d3b8f;
+  --A: #5DCAA5; --B: #AFA9EC; --C: #F0997B; --D: #EF9F27;
+  --schrift: Tahoma, Geneva, Verdana, "Segoe UI", system-ui, sans-serif;
+  --mono: "Courier New", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--schreibtisch);
+  color: var(--tinte);
+  font: 15px/1.45 var(--schrift);
+}
+
+/* Erhabene und eingelassene Kanten: das Grundelement der 90er-Oberfläche */
+.erhaben {
+  background: var(--platin);
+  box-shadow: inset 1px 1px 0 var(--licht), inset -1px -1px 0 var(--dunkel), inset -2px -2px 0 var(--schatten);
+}
+.eingelassen {
+  box-shadow: inset 1px 1px 0 var(--schatten), inset 2px 2px 0 var(--dunkel), inset -1px -1px 0 var(--licht);
+}
+
+/* Fenster */
+.fenster {
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 3px;
+}
+.titelleiste {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--titel);
+  color: #fff;
+  padding: 6px 8px;
+  font-weight: bold;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+.titelleiste .zeichen { width: 18px; height: 18px; flex: none; }
+.titelleiste .version { font-weight: normal; opacity: 0.85; margin-left: auto; font-size: 13px; }
+
+/* Werkzeugleiste und Gruppen */
+.werkzeuge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 10px 8px;
+  align-items: center;
+}
+.gruppe { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gruppe > .bez { font-size: 13px; color: var(--grau-text); margin-right: 2px; }
+
+button, .knopf {
+  font: inherit;
+  font-size: 14px;
+  color: var(--tinte);
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: var(--platin);
+  box-shadow: inset 1px 1px 0 var(--licht), inset -1px -1px 0 var(--dunkel), inset -2px -2px 0 var(--schatten);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+button:hover { background: var(--platin-hell); }
+button:active, button[aria-pressed="true"] {
+  background: #c9c6bf;
+  box-shadow: inset 1px 1px 0 var(--dunkel), inset 2px 2px 0 var(--schatten), inset -1px -1px 0 var(--licht);
+}
+button[aria-pressed="true"] { font-weight: bold; }
+button:disabled { color: #8a877f; cursor: default; }
+button:focus-visible, canvas:focus-visible { outline: 2px dotted var(--fokus); outline-offset: -6px; }
+
+.segmente { display: flex; }
+.segmente button + button { margin-left: -1px; }
+
+/* Arbeitsfläche: Palette, Ansicht, Info */
+.arbeit {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 0 8px 8px;
+  align-content: start;
+}
+.arbeit > *, .spalte > * { min-width: 0; }
+/* Handy: Ansicht zuerst, dann Ebene, Grundriss, Wohnungen, Zahlen, Legende */
+.spalte { display: contents; }
+.ansicht { order: 1; }
+#feld-ebene { order: 2; }
+#feld-grundriss { order: 3; }
+#feld-wohnungen { order: 4; }
+#feld-zahlen { order: 5; }
+#feld-legende { order: 6; }
+#feld-regeln { order: 7; }
+.feld { padding: 10px; }
+.feld h2 {
+  font-size: 13px;
+  font-weight: bold;
+  margin: 0 0 8px;
+}
+.ansicht {
+  position: relative;
+  background: var(--ansicht);
+  min-height: 320px;
+  height: min(100vw, 70vh);
+}
+.ansicht canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.ansicht .hinweis {
+  position: absolute; left: 10px; bottom: 8px;
+  font-size: 12px; color: var(--grau-text);
+}
+
+.legende { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 13px; }
+.legende span { display: flex; align-items: center; gap: 6px; }
+.farbe { width: 14px; height: 14px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.45); }
+.farbe.leer { background: transparent; box-shadow: none; border: 1px dashed #6b6962; }
+.farbe.gang { background: #b4b2a9; }
+
+.zahlen { width: 100%; border-collapse: collapse; font-size: 13px; }
+.zahlen td { padding: 4px 0; vertical-align: top; overflow-wrap: anywhere; }
+.zahlen td:last-child { text-align: right; font-family: var(--mono); font-weight: bold; white-space: nowrap; padding-left: 10px; }
+.zahlen tr + tr td { border-top: 1px solid #bdbab2; }
+.zahlen td.text { font-family: inherit; font-weight: normal; }
+#ebenen { display: grid; grid-template-columns: 1.7fr repeat(6, 1fr); }
+#ebenen button { min-width: 0; padding: 0; }
+
+.wohnungen { display: flex; flex-wrap: wrap; gap: 4px; }
+.wohnungen button { min-width: 44px; padding: 0 8px; font-family: var(--mono); font-size: 13px; }
+.wohnungen button .farbe { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: 0; }
+.wahl-info { font-size: 13px; color: var(--grau-text); margin: 8px 0 0; min-height: 1.4em; }
+
+.grundriss { display: block; width: 100%; max-width: 280px; margin: 0 auto; }
+
+details.regeln summary { cursor: pointer; font-weight: bold; font-size: 13px; min-height: 32px; display: flex; align-items: center; }
+details.regeln ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+details.regeln li + li { margin-top: 4px; }
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 8px;
+  font-size: 12px;
+}
+.status > span { padding: 4px 8px; }
+.status .gut { font-weight: bold; }
+.status a { color: var(--titel); }
+
+.rechnet { animation: blinken 1s steps(2) infinite; }
+@keyframes blinken { 50% { opacity: 0.35; } }
+
+/* Laptop und grösser: Palette links, Ansicht Mitte, Info rechts */
+@media (min-width: 900px) {
+  body { font-size: 13px; padding: 24px; }
+  .fenster { max-width: 1320px; min-height: calc(100vh - 48px); }
+  button, .knopf { min-height: 28px; min-width: 28px; font-size: 13px; padding: 0 10px; }
+  .wohnungen button { min-width: 36px; }
+  .arbeit { grid-template-columns: 220px minmax(0, 1fr) 280px; }
+  .ansicht { height: auto; min-height: 560px; order: 0; }
+  .spalte { display: flex; flex-direction: column; gap: 8px; }
+  .spalte > * { order: 0 !important; }
+  .spalte:first-child { order: -1; }
+  .legende { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rechnet { animation: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="fenster erhaben">
+
+  <div class="titelleiste">
+    <svg class="zeichen" viewBox="0 0 18 18" aria-hidden="true">
+      <rect x="1" y="1" width="16" height="16" fill="#d6d3cc"/>
+      <rect x="3" y="3" width="4" height="3" fill="#5DCAA5"/><rect x="7" y="3" width="4" height="3" fill="#5DCAA5"/><rect x="11" y="3" width="4" height="3" fill="#5DCAA5"/>
+      <rect x="3" y="7" width="4" height="3" fill="#F0997B"/><rect x="7" y="7" width="4" height="3" fill="#F0997B"/><rect x="11" y="7" width="4" height="3" fill="none" stroke="#2b2a27" stroke-width="0.8" stroke-dasharray="1 1"/>
+      <rect x="3" y="11" width="4" height="3" fill="#EF9F27"/><rect x="7" y="11" width="4" height="3" fill="#EF9F27"/><rect x="11" y="11" width="4" height="3" fill="#EF9F27"/>
+    </svg>
+    <h1 style="font-size:inherit;margin:0">Type Zero · Modul Generator</h1>
+    <span class="version">Open Source 1.0</span>
+  </div>
+
+  <div class="werkzeuge">
+    <div class="gruppe" role="group" aria-label="Blockgrösse">
+      <span class="bez">Block</span>
+      <div class="segmente" id="groessen"></div>
+    </div>
+    <div class="gruppe" role="group" aria-label="Variante">
+      <span class="bez">Variante</span>
+      <button id="zurueck" aria-label="Vorherige Variante">◀</button>
+      <span id="nummer" class="knopf eingelassen" style="display:inline-flex;align-items:center;background:#fff;font-family:var(--mono);cursor:default" aria-live="polite">1 / 1</span>
+      <button id="vor" aria-label="Nächste Variante">▶</button>
+      <button id="zufall">Zufall</button>
+      <button id="neu">Neu rechnen</button>
+    </div>
+    <div class="gruppe">
+      <button id="drehen">Ansicht drehen</button>
+    </div>
+  </div>
+
+  <div class="arbeit">
+
+    <div class="spalte">
+      <div class="feld erhaben" id="feld-ebene">
+        <h2>Ebene</h2>
+        <div class="segmente" id="ebenen" role="group" aria-label="Ebene wählen" style="flex-wrap:wrap"></div>
+        <p class="wahl-info" id="ebene-info"></p>
+      </div>
+      <div class="feld erhaben" id="feld-legende">
+        <h2>Legende</h2>
+        <div class="legende">
+          <span><i class="farbe" style="background:var(--A)"></i>A Through, 3 Module</span>
+          <span><i class="farbe" style="background:var(--B)"></i>B Bent, 4 Module</span>
+          <span><i class="farbe" style="background:var(--C)"></i>C Split, 5 Module</span>
+          <span><i class="farbe" style="background:var(--D)"></i>D Stacked, 6 Module</span>
+          <span><i class="farbe leer"></i>Zusatzmodul (leer)</span>
+          <span><i class="farbe gang"></i>Laubengang</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ansicht eingelassen">
+      <canvas id="bild" tabindex="0" role="img" aria-label="3D-Ansicht der Variante"></canvas>
+      <div class="hinweis" id="ansicht-info"></div>
+    </div>
+
+    <div class="spalte">
+      <div class="feld erhaben" id="feld-grundriss">
+        <h2 id="grundriss-titel">Grundriss</h2>
+        <canvas class="grundriss" id="grundriss" role="img" aria-label="Grundriss der gewählten Ebene"></canvas>
+      </div>
+      <div class="feld erhaben" id="feld-wohnungen">
+        <h2>Wohnungen</h2>
+        <div class="wohnungen" id="wohnungen"></div>
+        <p class="wahl-info" id="wahl-info"></p>
+      </div>
+      <div class="feld erhaben" id="feld-zahlen">
+        <h2 id="zahlen-titel">Zahlen</h2>
+        <table class="zahlen" id="zahlen"></table>
+      </div>
+      <div class="feld erhaben" id="feld-regeln">
+        <details class="regeln">
+          <summary>Regelwerk</summary>
+          <ul>
+            <li>Alle Module sind belegt: Wohnmodule plus Zusatzmodule (leer).</li>
+            <li>Jede Wohnung reicht von der Ost- zur Westfassade. Erschlossen über Laubengänge, abwechselnd Ost und West.</li>
+            <li>A: eine Reihe. B: Reihe plus ein Modul seitlich (L oder T). C: Reihe plus zwei Module eine Ebene höher oder tiefer, an der Laubengangseite und in der Mitte. D: zwei Reihen übereinander.</li>
+            <li>Zusatzmodule: A und B je 1, C 1 oder 2, D 2. Ein Zusatzmodul liegt auf derselben Ebene und teilt eine Wand mit der eigenen Wohnung.</li>
+            <li>Kein gefangenes Leermodul: Jedes Zusatzmodul erreicht die Ost- oder Westfassade, direkt oder über Zusatzmodule derselben Wohnung. Nord, Süd und Dach zählen nicht als Aussenluft.</li>
+            <li>Keine Begrenzung der Auskragung.</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="status">
+    <span class="eingelassen" id="status-block"></span>
+    <span class="eingelassen" id="status-pruefung"></span>
+    <span class="eingelassen" id="status-quelle"></span>
+    <span class="eingelassen"><a href="generator.js">Quellcode</a></span>
+  </div>
+
+</div>
+
+<script src="generator.js"></script>
+<script src="varianten.js"></script>
+<script>
+'use strict';
+
+/* ------------------------------------------------------------------
+   Zahlen pro Blockgrösse (exakt gezählt, siehe code/zaehlung)
+   ------------------------------------------------------------------ */
+const ZAHLEN = {
+  '3/5/6': { varianten: 1879346752, formen: 50133504, ohneRegeln: 336179010447480 },
+  '3/4/6': { varianten: 2627008,    formen: 112288,   ohneRegeln: 87726286384 },
+  '3/3/6': { varianten: 74112,      formen: 3664,     ohneRegeln: 104386980 },
+};
+
+const FARBE = {
+  A: ['#9FE1CB', '#5DCAA5', '#1D9E75'],   // oben, vorne, seitlich
+  B: ['#CECBF6', '#AFA9EC', '#7F77DD'],
+  C: ['#F5C4B3', '#F0997B', '#D85A30'],
+  D: ['#FAC775', '#EF9F27', '#BA7517'],
+  G: ['#D3D1C7', '#B4B2A9', '#888780'],   // Laubengang und abgeblendet
+};
+const TEXT = { A: '#085041', B: '#3C3489', C: '#712B13', D: '#633806', G: '#5F5E5A' };
+
+/* ------------------------------------------------------------------
+   Zustand
+   ------------------------------------------------------------------ */
+const zustand = {
+  groesse: '3/5/6',
+  index: 0,         // welche Variante
+  ebene: -1,        // -1 = alle Ebenen, sonst 0 bis 5
+  drehung: 0,       // 0 bis 3, je 90 Grad
+  wahl: -1,         // hervorgehobene Wohnung
+  rechnet: false,
+};
+
+// Vorrat geprüfter Varianten aus varianten.js, umgewandelt in lesbare Objekte
+const liste = {};
+for (const g in TypeZero.GROESSEN) {
+  liste[g] = (typeof VORRAT !== 'undefined' && VORRAT[g] ? VORRAT[g] : [])
+    .map(v => ({ wohnungen: v.map(([typ, module, zusatz]) => ({ typ, module, zusatz })), neu: false }));
+}
+
+const $ = id => document.getElementById(id);
+const tausender = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+
+function aktuelle() { return liste[zustand.groesse][zustand.index]; }
+function masse() { return { NX: TypeZero.NX, NY: TypeZero.GROESSEN[zustand.groesse].NY, NZ: TypeZero.NZ }; }
+
+function namen(wohnungen) {
+  const n = { A: 0, B: 0, C: 0, D: 0 };
+  return wohnungen.map(w => w.typ + (++n[w.typ]));
+}
+
+/* ------------------------------------------------------------------
+   3D-Ansicht (isometrisch, Maleralgorithmus: hinten zuerst)
+   ------------------------------------------------------------------ */
+const bild = $('bild'), stift = bild.getContext('2d');
+const C30 = Math.cos(Math.PI / 6);
+
+// Quader um 90 Grad drehen, so oft wie zustand.drehung
+function drehe(x0, y0, x1, y1) {
+  let { NX: B, NY: T } = masse();
+  for (let r = 0; r < zustand.drehung; r++) {
+    [x0, y0, x1, y1] = [y0, B - x1, y1, B - x0];
+    [B, T] = [T, B];
+  }
+  return [x0, y0, x1, y1];
+}
+
+function zeichneAnsicht() {
+  const v = aktuelle();
+  const dpr = window.devicePixelRatio || 1;
+  const w = bild.clientWidth, h = bild.clientHeight;
+  bild.width = Math.round(w * dpr); bild.height = Math.round(h * dpr);
+  stift.setTransform(dpr, 0, 0, dpr, 0, 0);
+  stift.clearRect(0, 0, w, h);
+  if (!v) return;
+
+  const { NX, NY, NZ } = masse();
+  const gedreht = zustand.drehung % 2 === 1;
+  const B = gedreht ? NY : NX, T = gedreht ? NX : NY;
+  const HZ = 0.75;   // Ebenenhöhe 3 m zu Modulbreite 4 m
+
+  // Massstab und Lage: die Ecken des Blocks (mit Laubengängen) passen in die Fläche
+  const roh = (x, y, z) => [(-x + y) * C30, -z * HZ + (-x - y) * 0.5];
+  const ecken = [];
+  for (const x of [-0.3, B + 0.3]) for (const y of [-0.3, T + 0.3]) for (const z of [0, NZ]) ecken.push(roh(x, y, z));
+  const minX = Math.min(...ecken.map(e => e[0])), maxX = Math.max(...ecken.map(e => e[0]));
+  const minY = Math.min(...ecken.map(e => e[1])), maxY = Math.max(...ecken.map(e => e[1]));
+  const S = Math.min(w / (maxX - minX), h / (maxY - minY)) * 0.86;
+  const ox = w / 2 - (minX + maxX) / 2 * S, oy = h / 2 - (minY + maxY) / 2 * S;
+  const P = (x, y, z) => { const r = roh(x, y, z); return [ox + r[0] * S, oy + r[1] * S]; };
+
+  function flaeche(pkt, farbe, deck, gestrichelt) {
+    stift.beginPath();
+    pkt.forEach((p, i) => i ? stift.lineTo(p[0], p[1]) : stift.moveTo(p[0], p[1]));
+    stift.closePath();
+    stift.globalAlpha = deck; stift.fillStyle = farbe; stift.fill(); stift.globalAlpha = 1;
+    stift.setLineDash(gestrichelt ? [3, 3] : []);
+    stift.strokeStyle = gestrichelt ? 'rgba(60,58,54,0.7)' : 'rgba(0,0,0,0.38)';
+    stift.lineWidth = 0.8; stift.stroke(); stift.setLineDash([]);
+  }
+  function quader(q, farbe, deck, gestrichelt, text, textfarbe) {
+    const [x0, y0, x1, y1] = q.box, z0 = q.z0, z1 = q.z1;
+    flaeche([P(x0, y0, z1), P(x1, y0, z1), P(x1, y1, z1), P(x0, y1, z1)], farbe[0], deck, gestrichelt);
+    flaeche([P(x0, y0, z0), P(x1, y0, z0), P(x1, y0, z1), P(x0, y0, z1)], farbe[1], deck, gestrichelt);
+    flaeche([P(x0, y0, z0), P(x0, y1, z0), P(x0, y1, z1), P(x0, y0, z1)], farbe[2], deck, gestrichelt);
+    if (text) {
+      const p = P((x0 + x1) / 2, (y0 + y1) / 2, z1);
+      stift.font = 'bold ' + Math.max(9, Math.min(13, S * 0.22)) + 'px ' + getComputedStyle(document.body).fontFamily;
+      stift.textAlign = 'center'; stift.textBaseline = 'middle';
+      stift.globalAlpha = deck < 0.3 ? 0.4 : 1; stift.fillStyle = textfarbe;
+      stift.fillText(text, p[0], p[1]); stift.globalAlpha = 1;
+    }
+  }
+
+  // Bodenraster
+  stift.strokeStyle = '#dcdad3'; stift.lineWidth = 1;
+  const rand = 4;
+  for (let i = -rand; i <= B + rand; i++) {
+    const a = P(i, -rand, 0), b = P(i, T + rand, 0);
+    stift.beginPath(); stift.moveTo(a[0], a[1]); stift.lineTo(b[0], b[1]); stift.stroke();
+  }
+  for (let j = -rand; j <= T + rand; j++) {
+    const a = P(-rand, j, 0), b = P(B + rand, j, 0);
+    stift.beginPath(); stift.moveTo(a[0], a[1]); stift.lineTo(b[0], b[1]); stift.stroke();
+  }
+  // Grundfläche des Blocks
+  flaeche([P(0, 0, 0), P(B, 0, 0), P(B, T, 0), P(0, T, 0)], '#c9c7bf', 0.5, false);
+
+  const sichtbar = z => zustand.ebene < 0 || z <= zustand.ebene;
+  const blass = z => zustand.ebene >= 0 && z < zustand.ebene;
+  const teile = [];
+  const nm = namen(v.wohnungen);
+
+  // Welche Zellen sind sichtbar belegt? Beschriftet wird nur ein Modul,
+  // dessen Deckfläche frei liegt.
+  const belegt = new Set();
+  v.wohnungen.forEach(wo => wo.module.concat(wo.zusatz).forEach(([x, y, z]) => { if (sichtbar(z)) belegt.add(x + ',' + y + ',' + z); }));
+
+  v.wohnungen.forEach((wo, i) => {
+    const ab = zustand.wahl >= 0 && zustand.wahl !== i;
+    // Beschriftung auf dem vordersten Modul mit freier Deckfläche
+    let oben = null, obenK = 0;
+    for (const [x, y, z] of wo.module) {
+      if (!sichtbar(z) || belegt.has(x + ',' + y + ',' + (z + 1))) continue;
+      const q = { box: drehe(x, y, x + 1, y + 1), z0: z * HZ, z1: (z + 0.98) * HZ };
+      const k = q.box[0] + q.box[1] - z * 10;
+      if (!oben || k < obenK) { oben = [x, y, z]; obenK = k; }
+    }
+    for (const [x, y, z] of wo.module) {
+      if (!sichtbar(z)) continue;
+      const q = { box: drehe(x, y, x + 1, y + 1), z0: z * HZ, z1: (z + 0.98) * HZ };
+      const grau = ab || blass(z);
+      const istOben = oben && oben[0] === x && oben[1] === y && oben[2] === z;
+      teile.push({ k: q.box[0] + q.box[1] - z, f: () => quader(q, grau ? FARBE.G : FARBE[wo.typ], blass(z) ? 0.18 : ab ? 0.3 : 1, false, istOben && !blass(z) ? nm[i] : '', ab ? TEXT.G : TEXT[wo.typ]) });
+    }
+    for (const [x, y, z] of wo.zusatz) {
+      if (!sichtbar(z)) continue;
+      const q = { box: drehe(x + 0.1, y + 0.1, x + 0.9, y + 0.9), z0: z * HZ, z1: (z + 0.88) * HZ };
+      const grau = ab || blass(z);
+      teile.push({ k: q.box[0] + q.box[1] - 0.2 - z + 0.001, f: () => quader(q, grau ? FARBE.G : FARBE[wo.typ], blass(z) ? 0.06 : ab ? 0.08 : 0.35, true) });
+    }
+  });
+
+  // Laubengänge als schmale Platten vor der Fassade
+  for (let z = 0; z < NZ; z++) {
+    if (!sichtbar(z)) continue;
+    const gx = TypeZero.laubengang(z);
+    for (let y = 0; y < NY; y++) {
+      const x0 = gx === 0 ? -0.3 : NX, x1 = x0 + 0.3;
+      const q = { box: drehe(x0, y, x1, y + 1), z0: z * HZ, z1: z * HZ + 0.05 };
+      teile.push({ k: (q.box[0] + q.box[2]) / 2 + (q.box[1] + q.box[3]) / 2 - 1 - z + 0.01, f: () => quader(q, FARBE.G, blass(z) ? 0.2 : 1, false) });
+    }
+  }
+
+  teile.sort((a, b) => b.k - a.k).forEach(t => t.f());
+
+  $('ansicht-info').textContent = 'Ansicht ' + (zustand.drehung + 1) + ' von 4' +
+    (zustand.ebene >= 0 ? ' · Ebene ' + (zustand.ebene + 1) + ' hervorgehoben' : '');
+}
+
+/* ------------------------------------------------------------------
+   Grundriss der gewählten Ebene (Westen links, Osten rechts)
+   ------------------------------------------------------------------ */
+const plan = $('grundriss'), pstift = plan.getContext('2d');
+let planZellen = [];   // für Antippen: Rechteck und Wohnung
+
+function zeichneGrundriss() {
+  const v = aktuelle();
+  const { NX, NY } = masse();
+  const z = zustand.ebene < 0 ? 0 : zustand.ebene;
+  $('grundriss-titel').textContent = 'Grundriss Ebene ' + (z + 1) + (zustand.ebene < 0 ? ' (Ebene wählen)' : '');
+
+  const zelle = 56, gang = 14, rand = 22;
+  const w = rand * 2 + gang * 2 + NX * zelle, h = rand * 2 + NY * zelle;
+  const dpr = window.devicePixelRatio || 1;
+  plan.width = w * dpr; plan.height = h * dpr;
+  plan.style.aspectRatio = w + ' / ' + h;
+  pstift.setTransform(dpr, 0, 0, dpr, 0, 0);
+  pstift.clearRect(0, 0, w, h);
+  pstift.fillStyle = '#f2f1ed'; pstift.fillRect(0, 0, w, h);
+  planZellen = [];
+  if (!v) return;
+
+  const x0 = rand + gang;
+  const schrift = getComputedStyle(document.body).fontFamily;
+  pstift.font = '11px ' + schrift; pstift.fillStyle = '#4a4944'; pstift.textAlign = 'center'; pstift.textBaseline = 'middle';
+  pstift.fillText('West', x0 - gang / 2, 10);
+  pstift.fillText('Ost', x0 + NX * zelle + gang / 2, 10);
+
+  // Laubengang
+  const gx = TypeZero.laubengang(z);
+  pstift.fillStyle = '#b4b2a9';
+  pstift.fillRect(gx === 0 ? x0 - gang : x0 + NX * zelle, rand, gang, NY * zelle);
+
+  const nm = namen(v.wohnungen);
+  // y = 0 oben gezeichnet
+  const feld = (x, y) => [x0 + x * zelle, rand + y * zelle];
+  v.wohnungen.forEach((wo, i) => {
+    const ab = zustand.wahl >= 0 && zustand.wahl !== i;
+    const f = ab ? FARBE.G : FARBE[wo.typ];
+    for (const [x, y, zz] of wo.module) {
+      if (zz !== z) continue;
+      const [px, py] = feld(x, y);
+      pstift.fillStyle = f[1]; pstift.globalAlpha = ab ? 0.4 : 1;
+      pstift.fillRect(px, py, zelle, zelle); pstift.globalAlpha = 1;
+      planZellen.push({ px, py, i });
+    }
+    for (const [x, y, zz] of wo.zusatz) {
+      if (zz !== z) continue;
+      const [px, py] = feld(x, y);
+      pstift.fillStyle = f[0]; pstift.globalAlpha = ab ? 0.25 : 0.55;
+      pstift.fillRect(px, py, zelle, zelle); pstift.globalAlpha = 1;
+      pstift.setLineDash([3, 3]); pstift.strokeStyle = '#3c3a36';
+      pstift.strokeRect(px + 4.5, py + 4.5, zelle - 9, zelle - 9); pstift.setLineDash([]);
+      planZellen.push({ px, py, i });
+    }
+  });
+  // Wände zwischen verschiedenen Wohnungen kräftig, innerhalb fein
+  const wem = {};
+  v.wohnungen.forEach((wo, i) => {
+    wo.module.forEach(([x, y, zz]) => { if (zz === z) wem[x + ',' + y] = i; });
+    wo.zusatz.forEach(([x, y, zz]) => { if (zz === z) wem[x + ',' + y] = i + 1000; });
+  });
+  pstift.strokeStyle = '#141413';
+  for (let y = 0; y < NY; y++) for (let x = 0; x < NX; x++) {
+    const [px, py] = feld(x, y), a = wem[x + ',' + y];
+    const wand = (b, x1, y1, x2, y2) => {
+      pstift.lineWidth = (b === undefined || b % 1000 !== a % 1000) ? 2 : 0.5;
+      pstift.beginPath(); pstift.moveTo(x1, y1); pstift.lineTo(x2, y2); pstift.stroke();
+    };
+    wand(wem[(x + 1) + ',' + y], px + zelle, py, px + zelle, py + zelle);
+    wand(wem[x + ',' + (y + 1)], px, py + zelle, px + zelle, py + zelle);
+    if (x === 0) wand(undefined, px, py, px, py + zelle);
+    if (y === 0) wand(undefined, px, py, px + zelle, py);
+  }
+  // Beschriftung
+  pstift.font = 'bold 12px ' + schrift;
+  for (const c of planZellen) {
+    const wo = v.wohnungen[c.i], ab = zustand.wahl >= 0 && zustand.wahl !== c.i;
+    pstift.fillStyle = ab ? TEXT.G : TEXT[wo.typ];
+    pstift.fillText(nm[c.i], c.px + zelle / 2, c.py + zelle / 2);
+  }
+  plan._zelle = zelle; plan._w = w;
+}
+
+plan.addEventListener('click', e => {
+  const r = plan.getBoundingClientRect(), f = plan._w / r.width;
+  const x = (e.clientX - r.left) * f, y = (e.clientY - r.top) * f;
+  const t = planZellen.find(c => x >= c.px && x < c.px + plan._zelle && y >= c.py && y < c.py + plan._zelle);
+  waehle(t ? (zustand.wahl === t.i ? -1 : t.i) : -1);
+});
+
+/* ------------------------------------------------------------------
+   Bedienelemente
+   ------------------------------------------------------------------ */
+function knopf(text, beiKlick, aria) {
+  const b = document.createElement('button');
+  b.innerHTML = text;
+  if (aria) b.setAttribute('aria-label', aria);
+  b.addEventListener('click', beiKlick);
+  return b;
+}
+
+function baueGroessen() {
+  const ort = $('groessen');
+  ort.innerHTML = '';
+  for (const g in TypeZero.GROESSEN) {
+    const b = knopf(g, () => { zustand.groesse = g; zustand.index = 0; zustand.wahl = -1; if (zustand.drehung) zustand.drehung = 0; alles(); });
+    b.setAttribute('aria-pressed', g === zustand.groesse);
+    ort.appendChild(b);
+  }
+}
+
+function baueEbenen() {
+  const ort = $('ebenen');
+  ort.innerHTML = '';
+  const alle = knopf('Alle', () => { zustand.ebene = -1; alles(); });
+  alle.setAttribute('aria-pressed', zustand.ebene < 0);
+  ort.appendChild(alle);
+  for (let z = 0; z < TypeZero.NZ; z++) {
+    const b = knopf(String(z + 1), () => { zustand.ebene = z; alles(); }, 'Ebene ' + (z + 1));
+    b.setAttribute('aria-pressed', zustand.ebene === z);
+    ort.appendChild(b);
+  }
+  $('ebene-info').textContent = zustand.ebene < 0
+    ? 'Ganzer Block. Eine Zahl zeigt die Ebene mit den Ebenen darunter blass.'
+    : 'Laubengang auf der ' + (TypeZero.laubengang(zustand.ebene) === 0 ? 'Westseite' : 'Ostseite') + '.';
+}
+
+function baueWohnungen() {
+  const v = aktuelle(), ort = $('wohnungen');
+  ort.innerHTML = '';
+  if (!v) return;
+  const nm = namen(v.wohnungen);
+  const reihe = v.wohnungen.map((_, i) => i).sort((a, b) => nm[a].localeCompare(nm[b]));
+  reihe.forEach(i => {
+    const wo = v.wohnungen[i];
+    const b = knopf('<i class="farbe" style="background:var(--' + wo.typ + ')"></i>' + nm[i], () => waehle(zustand.wahl === i ? -1 : i));
+    b.setAttribute('aria-pressed', zustand.wahl === i);
+    ort.appendChild(b);
+  });
+  if (zustand.wahl >= 0) {
+    const wo = v.wohnungen[zustand.wahl];
+    const ebenen = [...new Set(wo.module.map(m => m[2] + 1))].join(' und ');
+    const zus = wo.zusatz.map(m => 'Ebene ' + (m[2] + 1)).join(', ');
+    $('wahl-info').textContent = nm[zustand.wahl] + ' (' + TypeZero.TYPEN[wo.typ].name + '): ' + wo.module.length +
+      ' Wohnmodule auf Ebene ' + ebenen + ', ' + wo.zusatz.length + ' Zusatzmodul' + (wo.zusatz.length > 1 ? 'e' : '') + ' (' + zus + ').';
+  } else {
+    $('wahl-info').textContent = 'Eine Wohnung antippen, um sie hervorzuheben.';
+  }
+}
+
+function baueZahlen() {
+  const g = zustand.groesse, Z = ZAHLEN[g], { NY, mix } = TypeZero.GROESSEN[g];
+  const N = 3 * NY * 6;
+  let wohn = 0; for (const t in mix) wohn += mix[t] * TypeZero.TYPEN[t].module;
+  const chance = Math.round(Z.ohneRegeln / Z.formen);
+  $('zahlen-titel').textContent = 'Zahlen ' + g;
+  $('zahlen').innerHTML = [
+    ['Module', N + ' (' + wohn + ' + ' + (N - wohn) + ' leer)'],
+    ['Wohnungen', 'A ' + mix.A + ' · B ' + mix.B + ' · C ' + mix.C + ' · D ' + mix.D],
+    ['Gültige Varianten', tausender(Z.varianten)],
+    ['Gebäudeformen', tausender(Z.formen)],
+    ['Anordnungen ohne Regeln für Zusatzmodule', tausender(Z.ohneRegeln)],
+    ['Chance, zufällig eine gültige Form zu treffen', '1 zu ' + tausender(chance)],
+  ].map(([a, b], i) => '<tr><td>' + a + '</td><td' + (i < 2 ? ' class="text"' : '') + '>' + b + '</td></tr>').join('');
+}
+
+function baueStatus() {
+  const v = aktuelle(), g = zustand.groesse, n = liste[g].length;
+  $('nummer').textContent = (n ? zustand.index + 1 : 0) + ' / ' + n;
+  $('zurueck').disabled = $('vor').disabled = $('zufall').disabled = n < 2;
+  const { NY } = TypeZero.GROESSEN[g];
+  $('status-block').textContent = 'Block ' + g + ' · 12 x ' + (NY * 4) + ' x 18 m';
+  if (v) {
+    const fehler = TypeZero.pruefe(v.wohnungen, g);
+    $('status-pruefung').innerHTML = fehler.length
+      ? 'Prüfung: ' + fehler[0]
+      : '<span class="gut">Gültig</span> · alle Regeln geprüft';
+    $('status-quelle').textContent = v.neu ? 'Soeben neu gerechnet' : 'Aus dem Vorrat geprüfter Varianten';
+  }
+  if (!zustand.rechnet) $('neu').textContent = 'Neu rechnen';
+  bild.setAttribute('aria-label', '3D-Ansicht: Block ' + g + ', Variante ' + (zustand.index + 1) + ' von ' + n);
+}
+
+function waehle(i) { zustand.wahl = i; baueWohnungen(); zeichneAnsicht(); zeichneGrundriss(); }
+
+function alles() {
+  baueGroessen(); baueEbenen(); baueWohnungen(); baueZahlen(); baueStatus();
+  zeichneAnsicht(); zeichneGrundriss();
+}
+
+$('zurueck').onclick = () => { const n = liste[zustand.groesse].length; zustand.index = (zustand.index - 1 + n) % n; zustand.wahl = -1; alles(); };
+$('vor').onclick = () => { const n = liste[zustand.groesse].length; zustand.index = (zustand.index + 1) % n; zustand.wahl = -1; alles(); };
+$('zufall').onclick = () => {
+  const n = liste[zustand.groesse].length;
+  let j = zustand.index; while (n > 1 && j === zustand.index) j = Math.floor(Math.random() * n);
+  zustand.index = j; zustand.wahl = -1; alles();
+};
+$('drehen').onclick = () => { zustand.drehung = (zustand.drehung + 1) % 4; zeichneAnsicht(); };
+
+/* Neu rechnen: der Generator sucht eine neue Variante. Im Web Worker
+   bleibt die Seite bedienbar; ohne Worker (Datei lokal geöffnet)
+   rechnet die Seite direkt und ist kurz blockiert. */
+$('neu').onclick = () => {
+  if (zustand.rechnet) return;
+  const g = zustand.groesse, start = Math.floor(Math.random() * 1e9);
+  zustand.rechnet = true;
+  const knopfNeu = $('neu');
+  knopfNeu.disabled = true; knopfNeu.classList.add('rechnet'); knopfNeu.textContent = 'Rechnet …';
+  const fertig = r => {
+    zustand.rechnet = false; knopfNeu.disabled = false; knopfNeu.classList.remove('rechnet');
+    if (r) {
+      liste[g].push({ wohnungen: r.variante, neu: true });
+      if (zustand.groesse === g) { zustand.index = liste[g].length - 1; zustand.wahl = -1; }
+    }
+    alles();
+    if (!r) $('status-quelle').textContent = 'Keine Variante gefunden, bitte nochmals';
+  };
+  let worker = null;
+  try { worker = new Worker('generator.js'); } catch (e) { worker = null; }
+  if (worker) {
+    worker.onmessage = e => {
+      if (e.data.versuch) { knopfNeu.textContent = 'Rechnet … Versuch ' + e.data.versuch; return; }
+      worker.terminate(); fertig(e.data.ergebnis);
+    };
+    worker.onerror = ev => { ev.preventDefault(); worker.terminate(); direkt(); };
+    worker.postMessage({ groesse: g, startwert: start });
+  } else direkt();
+  function direkt() {
+    knopfNeu.textContent = 'Rechnet …';
+    setTimeout(() => fertig(TypeZero.findeVariante(g, start, 200)), 50);
+  }
+};
+
+// Tastatur: Pfeile blättern, Zahlen wählen Ebenen, 0 = alle
+document.addEventListener('keydown', e => {
+  if (e.target.closest('summary')) return;
+  if (e.key === 'ArrowRight') $('vor').click();
+  else if (e.key === 'ArrowLeft') $('zurueck').click();
+  else if (e.key >= '1' && e.key <= '6') { zustand.ebene = +e.key - 1; alles(); }
+  else if (e.key === '0') { zustand.ebene = -1; alles(); }
+  else if (e.key === 'r' || e.key === 'R') $('drehen').click();
+});
+
+window.addEventListener('resize', () => { zeichneAnsicht(); });
+
+// Direkter Link, z. B. ?block=3/4/6&variante=2&ebene=3
+const adresse = new URLSearchParams(location.search);
+if (TypeZero.GROESSEN[adresse.get('block')]) zustand.groesse = adresse.get('block');
+const vNr = parseInt(adresse.get('variante'), 10);
+if (vNr >= 1 && vNr <= liste[zustand.groesse].length) zustand.index = vNr - 1;
+const eNr = parseInt(adresse.get('ebene'), 10);
+if (eNr >= 1 && eNr <= TypeZero.NZ) zustand.ebene = eNr - 1;
+
+alles();
+</script>
+</body>
+</html>
