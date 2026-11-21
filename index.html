@@ -7,44 +7,51 @@
 <meta name="description" content="Open Source Modul Generator für das Wohnsystem Type Zero: gültige Varianten für Blöcke 3/5/6, 3/4/6 und 3/3/6, Ebene für Ebene.">
 <style>
 /* ------------------------------------------------------------------
-   Gestaltung: Software der 90er. Ein graues Programmfenster mit
-   Titelleiste, Werkzeugleiste, Palette, eingelassener 3D-Ansicht
-   und Statuszeile. Farben der Wohnungstypen wie im Regelwerk (PDF).
+   Gestaltung: Programmfenster aus Glas, wie Software um 2007.
+   Halbtransparente Flächen mit Unschärfe, glänzende Knöpfe,
+   Farben der Wohnungstypen wie im Regelwerk (PDF).
    ------------------------------------------------------------------ */
 :root {
-  --schreibtisch: #2f5d62;   /* Hintergrund hinter dem Fenster */
-  --platin: #d6d3cc;         /* Fensterfläche */
-  --platin-hell: #e6e4df;
-  --licht: #ffffff;          /* Kante oben links */
-  --schatten: #858279;       /* Kante unten rechts */
-  --dunkel: #2b2a27;
-  --titel: #1d3b8f;          /* Titelleiste */
-  --tinte: #141413;
-  --grau-text: #4a4944;      /* 8.0:1 auf --platin */
-  --ansicht: #f2f1ed;        /* Grund der 3D-Ansicht */
-  --raster: #d9d7d0;
-  --fokus: #1d3b8f;
+  --tinte: #10202a;
+  --grau-text: #33434d;      /* auf hellem Glas über 7:1 */
+  --glas: rgba(236, 244, 248, 0.62);
+  --glas-feld: rgba(255, 255, 255, 0.72);
+  --glas-kante: rgba(255, 255, 255, 0.75);
+  --glas-linie: rgba(30, 60, 80, 0.28);
+  --ansicht: rgba(250, 252, 253, 0.92);
+  --fokus: #1a6fc4;
+  --wahl: #cfe6fb;
   --A: #5DCAA5; --B: #AFA9EC; --C: #F0997B; --D: #EF9F27;
-  --schrift: Tahoma, Geneva, Verdana, "Segoe UI", system-ui, sans-serif;
-  --mono: "Courier New", ui-monospace, Menlo, monospace;
+  --schrift: "Segoe UI", Tahoma, Geneva, Verdana, system-ui, sans-serif;
+  --mono: Consolas, "Courier New", ui-monospace, Menlo, monospace;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--schreibtisch);
   color: var(--tinte);
   font: 15px/1.45 var(--schrift);
+  /* Hintergrund, der durch das Glas scheint */
+  background-color: #1f5560;
+  background-image:
+    radial-gradient(60% 50% at 15% 10%, rgba(93, 202, 165, 0.55), transparent 70%),
+    radial-gradient(50% 45% at 90% 20%, rgba(70, 130, 200, 0.55), transparent 70%),
+    radial-gradient(70% 60% at 60% 100%, rgba(240, 153, 123, 0.35), transparent 70%);
+  background-attachment: fixed;
 }
 
-/* Erhabene und eingelassene Kanten: das Grundelement der 90er-Oberfläche */
+/* Glasflächen */
 .erhaben {
-  background: var(--platin);
-  box-shadow: inset 1px 1px 0 var(--licht), inset -1px -1px 0 var(--dunkel), inset -2px -2px 0 var(--schatten);
+  background: var(--glas-feld);
+  border: 1px solid var(--glas-kante);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(10, 30, 40, 0.18);
 }
 .eingelassen {
-  box-shadow: inset 1px 1px 0 var(--schatten), inset 2px 2px 0 var(--dunkel), inset -1px -1px 0 var(--licht);
+  border: 1px solid var(--glas-linie);
+  border-radius: 4px;
+  box-shadow: inset 0 1px 3px rgba(10, 30, 40, 0.18);
 }
 
 /* Fenster */
@@ -53,21 +60,27 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 3px;
+  background: var(--glas);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  overflow: hidden;
 }
+.fenster.erhaben { border-radius: 0; background: var(--glas); }
 .titelleiste {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--titel);
-  color: #fff;
-  padding: 6px 8px;
-  font-weight: bold;
+  padding: 8px 12px;
+  font-weight: 600;
   font-size: 14px;
-  letter-spacing: 0.01em;
+  color: var(--tinte);
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.95), 0 0 2px rgba(255, 255, 255, 0.9);
+  background: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.06) 51%, rgba(255, 255, 255, 0.22));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
 }
 .titelleiste .zeichen { width: 18px; height: 18px; flex: none; }
-.titelleiste .version { font-weight: normal; opacity: 0.85; margin-left: auto; font-size: 13px; }
+.titelleiste .version { font-weight: normal; margin-left: auto; font-size: 13px; }
 
 /* Werkzeugleiste und Gruppen */
 .werkzeuge {
@@ -78,8 +91,9 @@ body {
   align-items: center;
 }
 .gruppe { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.gruppe > .bez { font-size: 13px; color: var(--grau-text); margin-right: 2px; }
+.gruppe > .bez { font-size: 13px; color: var(--grau-text); margin-right: 2px; text-shadow: 0 0 6px rgba(255,255,255,0.9); }
 
+/* Glänzende Knöpfe: obere Hälfte hell, untere Hälfte satter */
 button, .knopf {
   font: inherit;
   font-size: 14px;
@@ -87,23 +101,31 @@ button, .knopf {
   min-height: 44px;
   min-width: 44px;
   padding: 0 12px;
-  border: 0;
-  border-radius: 0;
-  background: var(--platin);
-  box-shadow: inset 1px 1px 0 var(--licht), inset -1px -1px 0 var(--dunkel), inset -2px -2px 0 var(--schatten);
+  border: 1px solid rgba(30, 55, 75, 0.45);
+  border-radius: 4px;
+  background: linear-gradient(#ffffff, #eef3f6 48%, #dbe5ec 52%, #eaf1f5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
   cursor: pointer;
   touch-action: manipulation;
+  transition: background-color 150ms ease-out, box-shadow 150ms ease-out;
 }
-button:hover { background: var(--platin-hell); }
+button:hover {
+  background: linear-gradient(#f4fbff, #e2f2fc 48%, #c6e3f7 52%, #def0fb);
+  border-color: rgba(26, 111, 196, 0.6);
+}
 button:active, button[aria-pressed="true"] {
-  background: #c9c6bf;
-  box-shadow: inset 1px 1px 0 var(--dunkel), inset 2px 2px 0 var(--schatten), inset -1px -1px 0 var(--licht);
+  background: linear-gradient(#e3f1fc, #c4e0f7 48%, #9fcbef 52%, #bcdcf5);
+  border-color: rgba(26, 90, 160, 0.75);
+  box-shadow: inset 0 1px 3px rgba(10, 40, 80, 0.3);
 }
-button[aria-pressed="true"] { font-weight: bold; }
-button:disabled { color: #8a877f; cursor: default; }
-button:focus-visible, canvas:focus-visible { outline: 2px dotted var(--fokus); outline-offset: -6px; }
+button[aria-pressed="true"] { font-weight: 600; }
+button:disabled { color: #7d8a92; cursor: default; background: linear-gradient(#fafcfd, #edf1f3); border-color: rgba(30, 55, 75, 0.2); }
+button:focus-visible, canvas:focus-visible { outline: 2px solid var(--fokus); outline-offset: 1px; }
 
 .segmente { display: flex; }
+.segmente button { border-radius: 0; }
+.segmente button:first-child { border-radius: 4px 0 0 4px; }
+.segmente button:last-child { border-radius: 0 4px 4px 0; }
 .segmente button + button { margin-left: -1px; }
 
 /* Arbeitsfläche: Palette, Ansicht, Info */
@@ -176,7 +198,7 @@ details.regeln li + li { margin-top: 4px; }
 }
 .status > span { padding: 4px 8px; }
 .status .gut { font-weight: bold; }
-.status a { color: var(--titel); }
+.status a { color: #0f4f96; }
 
 .rechnet { animation: blinken 1s steps(2) infinite; }
 @keyframes blinken { 50% { opacity: 0.35; } }
@@ -184,6 +206,7 @@ details.regeln li + li { margin-top: 4px; }
 /* Laptop und grösser: Palette links, Ansicht Mitte, Info rechts */
 @media (min-width: 900px) {
   body { font-size: 13px; padding: 24px; }
+  .fenster.erhaben { border-radius: 10px; box-shadow: 0 12px 40px rgba(5, 25, 35, 0.45), inset 0 1px 0 rgba(255,255,255,0.7); }
   .fenster { max-width: 1320px; min-height: calc(100vh - 48px); }
   button, .knopf { min-height: 28px; min-width: 28px; font-size: 13px; padding: 0 10px; }
   .wohnungen button { min-width: 36px; }
@@ -487,7 +510,7 @@ function zeichneGrundriss() {
   plan.style.aspectRatio = w + ' / ' + h;
   pstift.setTransform(dpr, 0, 0, dpr, 0, 0);
   pstift.clearRect(0, 0, w, h);
-  pstift.fillStyle = '#f2f1ed'; pstift.fillRect(0, 0, w, h);
+  pstift.fillStyle = '#f7fafb'; pstift.fillRect(0, 0, w, h);
   planZellen = [];
   if (!v) return;
 
