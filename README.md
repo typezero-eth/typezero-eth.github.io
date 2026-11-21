@@ -17,3 +17,7 @@ Die Seite zeigt geprüfte Varianten für drei Blockgrössen (Breite/Länge/Höhe
 - `varianten.js` – Vorrat geprüfter Varianten
 
 Lokal ansehen: `index.html` im Browser öffnen.
+
+## Lizenz
+
+MIT-Lizenz, Copyright (c) 2026 Type Zero Team, Guy Helfer. Siehe `LICENSE`.

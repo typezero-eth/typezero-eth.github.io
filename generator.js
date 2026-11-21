@@ -11,6 +11,9 @@
  * Dieses Programm sucht zufällig solche Anordnungen und prüft sie.
  *
  * Läuft im Browser (auch als Web Worker) und unter Node.js.
+ *
+ * Copyright (c) 2026 Type Zero Team, Guy Helfer
+ * MIT-Lizenz, siehe LICENSE
  */
 'use strict';
 
